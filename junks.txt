@@ -1,0 +1,6 @@
+junks.txt
+junk.txt
+LICENSE
+README.md
+SimpleShell
+SimpleShell.c

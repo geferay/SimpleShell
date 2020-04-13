@@ -4,9 +4,10 @@
 #include <assert.h>  //assert error-handling
 #include <sys/wait.h>
 #include <string.h>
+#include <ctype.h>
 
 #define MAX_LINE 80 /* The maximum length command */
-#define DIAG_OUTPUT 0
+#define DIAG_OUTPUT 1
 
 const int argsMAX = MAX_LINE/2 + 1;
 
@@ -26,14 +27,6 @@ int main(void)
     
     while (should_run) {
         {
-            /*sorry way to erase the stack, because I was getting artifacts*/
-            /*it did get rid of the artifacts*/
-            char blankingBuffer[1000000];
-            for(int i = 0; i < 1000000; ++i){
-                blankingBuffer[i] = '\0';
-            }
-        }
-        {
             char *args[argsMAX]; /* command line arguments */
             char input[MAX_LINE] = "";
             char command[MAX_LINE] = "";
@@ -48,14 +41,16 @@ int main(void)
                 command[c] = '\0';
             }
             
-            printf("osh>");
-            fflush(stdout);
-            
-            /*Get the input.*/
             {
+                /*Get the input.*/
                 char *com = input;
+                //                do
+                //                {
+                printf("osh>");
+                fflush(stdout);
                 cLength = getline(&com,&maxLine,stdin);
                 input[cLength] = '\0'; /*make sure no junk got to end*/
+                //                } while(!isprint(input[0])); /*Don't let in garbage.*/
                 if(DIAG_OUTPUT) printf("Received input: %s", input);
                 fflush(stdout);
             }
@@ -90,6 +85,7 @@ int main(void)
             int l = 0; /*l tracks location in input scan*/
             while(input[l] != '\0' && should_run == 1 && l < MAX_LINE){
                 if(DIAG_OUTPUT){
+                    /*This is diagnostic text. It outputs the status of input and l.*/
                     printf("=====================DIAGNOSTICS=====================\n");
                     assert(input[l] != '\0');
                     printf("input[%d] is: %c\n", l, input[l]); fflush(stdout);
@@ -101,9 +97,10 @@ int main(void)
                 }
                 
                 int waitForChild = 1; /*rmember if we shall wait for child*/
-                int haveCommand = 0;  /*be certain about whether we have command or not*/
+                int haveCommand  = 0; /*be certain about whether we have command or not*/
                 
                 /*free() memory*/
+                /*This loop aggressively clears out garbage and old args.*/
                 for(int a = 0; a < argsMAX; ++a){
                     if(args[a] != NULL){
                         free(args[a]);
@@ -114,10 +111,12 @@ int main(void)
                         }
                     }
                 }
+                /*This clears out garbage and old content from command.*/
                 for(int i = 0; i < MAX_LINE; ++i){
                     command[i] = '\0';
                 }
                 
+                /*PRIMARY PARSING BLOCK - This works on '&' and ';'.*/
                 /*single out and run individual commands separated by '&' and ';';
                  Inputs without these are assumed to be 1 command ending with ';'.*/
                 {
@@ -126,10 +125,6 @@ int main(void)
                     for( ; l < MAX_LINE
                         && (input[l] < '!'
                             || input[l] > '~'); ++l);
-                    //                    /*brute-force leave loop when at end*/
-                    //                    if(l >= MAX_LINE){
-                    //                        break;
-                    //                    }
                     /*copy next command from input*/
                     for( ;
                         l < MAX_LINE
@@ -140,14 +135,16 @@ int main(void)
                         command[p] = input[l];
                         haveCommand = 1; /*if we're here, we should haveCommand*/
                     }
-                    if(input[l] == '&'){
+                    if(input[l] == '&'){  /*HANDLE '&'*/
                         waitForChild = 0; /*don't wait for child, if received '&'*/
-                        ++l; /*got to next l, or we'll have endless loop*/
+                        ++l;              /*got to next l, or we'll have endless loop*/
                     }
-                    if(input[l] == ';'){
+                    if(input[l] == ';'){  /*HANDLE ';'*/
                         waitForChild = 1; /*don't wait for child, if received '&'*/
-                        ++l; /*got to next l, or we'll have endless loop*/
+                        ++l;              /*got to next l, or we'll have endless loop*/
                     }
+                    /*skip over non-printing characters in input*/
+                    for( ; input[l] < '!' || input[l] > '~'; ++l);
                     /*get rid of ending spaces*/
                     for(--p; p >=0; --p){
                         if(command[p] >= '!' && command[p] <= '~'){
@@ -164,14 +161,13 @@ int main(void)
                     for( ; p < MAX_LINE; ++p){
                         command[p] = '\0';
                     }
-                    //                    printf("Got command: %s\n", command); fflush(stdout);
-                    //                    printf("Wait on child?: %s\n", waitForChild? "TRUE":"FALSE");
                 }
                 if(DIAG_OUTPUT) printf("Command is: %s\n", command);
                 if(DIAG_OUTPUT) printf("Wait on child?: %s\n", waitForChild? "TRUE":"FALSE");
                 
                 /*This function splits the command up.*/
                 tokenizeCommand(command, args);
+                
                 
                 for(int i = 0; i < argsMAX; ++i){
                     if(args[i] != NULL){
@@ -204,16 +200,22 @@ int main(void)
                     pid_t pid = fork();
                     assert(pid >= 0);  /*This would be bad, to fail.*/
                     if(DIAG_OUTPUT) {printf("We are here!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!%s\n", (pid == 0)? "CHILD":"PARENT"); fflush(stdout);}
-//                    int fileFD = -1;
+                    int fileFD = -1;
                     if(pid == 0){
                         //pid == 0 means we're running as the child.
-                        if(DIAG_OUTPUT) {printf("######################RUNNING COMMAND######################\n");
+                        if(DIAG_OUTPUT) {
+                            printf("######################RUNNING COMMAND######################\n");
                             printf("######################%s\n", command);
-                            fflush(stdout);}
+                            fflush(stdout);
+                            
+                        }
                         switch (redirectionType) {
                             case TO_FILE:{
-                                if(DIAG_OUTPUT) {printf("##########################TO FILE##########################\n");
-                                    fflush(stdout);}
+                                if(DIAG_OUTPUT) {
+                                    printf("##########################TO FILE##########################\n");
+                                    fflush(stdout);
+                                    
+                                }
                                 {
                                     FILE *fp;
                                     fp = fopen(args[2], "w+");
@@ -227,19 +229,26 @@ int main(void)
                                         /*Do file stuff*/
                                         /*build new args*/
                                         execvp(newArgs[0], newArgs);
+                                        printf("We should not reach here.");
+                                        fflush(stdout);
+                                        exit(0);
                                     }
                                     else{
                                         /*This parent (child of original parent) always waits for its children.*/
                                         wait(NULL);
                                         /*CLOSE FILE*/
                                         fclose(fp);
+                                        //                                        exit(0);
                                     }
                                 }
                             }
                                 break;
                             case FROM_FILE:{
-                                if(DIAG_OUTPUT) {printf("#########################FROM FILE#########################\n");
-                                    fflush(stdout);}
+                                if(DIAG_OUTPUT) {
+                                    printf("#########################FROM FILE#########################\n");
+                                    fflush(stdout);
+                                    
+                                }
                                 {
                                     FILE *fp;
                                     fp = fopen(args[2], "r");
@@ -253,19 +262,26 @@ int main(void)
                                         /*Do file stuff*/
                                         /*build new args*/
                                         execvp(newArgs[0], newArgs);
+                                        printf("We should not reach here.");
+                                        fflush(stdout);
+                                        exit(0);
                                     }
                                     else{
                                         /*This parent (child of original parent) always waits for its children.*/
                                         wait(NULL);
                                         /*CLOSE FILE*/
                                         fclose(fp);
+                                        //                                        exit(0);
                                     }
                                 }
                             }
                                 break;
                             case PIPE:{
-                                if(DIAG_OUTPUT) {printf("############################PIPE###########################\n");
-                                    fflush(stdout);}
+                                if(DIAG_OUTPUT) {
+                                    printf("############################PIPE###########################\n");
+                                    fflush(stdout);
+                                    
+                                }
                                 {
                                     int fd[2];
                                     pipe(fd);
@@ -278,6 +294,8 @@ int main(void)
                                         newArgs[0] = args[2];
                                         newArgs[1] = NULL;
                                         execvp(newArgs[0], newArgs);
+                                        printf("We should not reach here.");
+                                        fflush(stdout);
                                         exit(0);
                                     }
                                     else{
@@ -294,8 +312,11 @@ int main(void)
                                 break;
                                 
                             default:{
-                                if(DIAG_OUTPUT) {printf("############################NONE###########################\n");
-                                    fflush(stdout);}
+                                if(DIAG_OUTPUT) {
+                                    printf("############################NONE###########################\n");
+                                    fflush(stdout);
+                                    
+                                }
                                 execvp(args[0], args);
                                 printf("Should never reach here! \n");
                                 printf("Your command was likely invalid or not found.\n");
@@ -315,6 +336,7 @@ int main(void)
                 }
                 
                 //                exit(0);
+                
             }
             /*free() memory*/
             for(int a = 0; a < argsMAX; ++a){
@@ -332,48 +354,62 @@ int main(void)
     return 0;
 }
 
-
+/*Tokenizes a command string based on spaces.
+ @param char* input is the command string
+ @param char* args[] is an array to put the tokens in
+ @returns the number of tokens */
 int tokenizeCommand(char* input, char* args[]){
-    {
-        /*sorry way to erase the stack, because I was getting artifacts*/
-        /*it did get rid of the artifacts*/
-        char blankingBuffer[1000000];
-        for(int i = 0; i < 1000000; ++i){
-            blankingBuffer[i] = '\0';
-        }
-    }
     args[0] = (char*)malloc(MAX_LINE * sizeof(char));
+    /*Bad things used to happen. Then, a garbage cleaning loop was added.*/
+    /*Before the loop was added, artifacts would get mixed into commands.*/
     for(int d = 0; d < MAX_LINE; ++d){
         args[0][d] = '\0';
     }
-    int c = 0;
-    int i = 0;
-    int a = 0;
+    /*These are counters. They're here, because the for() loop was getting too unweildly.*/
+    int c = 0; /*character tracker*/
+    int i = 0; /*index of location in argument string*/
+    int a = 0; /*index of current argument number*/
+    /*loop for as long as:
+     * We're not out of arguments           (a < argsMAX), and
+     * We're not beyond the MAX_LINE length (c < MAX_LINE).*/
+    /*counters:
+     * c: will be incremented constantly,
+     * i: will get incrmented constantly but reset occasionally,
+     * a: will only be incremented when moving to a new args.*/
     for( ; a < argsMAX && c < MAX_LINE; ++i, ++c){
+        /*We separate on the spaces, so (input[c] == ' ')
+         Running in this if() statement creats a new args.*/
         if(input[c] == ' '){
             args[a][i] = '\0'; /*end current string*/
-            i = 0;
-            ++a; /*go to next arg*/
-            ++c; /*skip the space*/
-            args[a] = (char*)malloc(MAX_LINE * sizeof(char));
+            i = 0;             /*reset i, since it's a new args string*/
+            ++a;               /*go to next arg*/
+            ++c;               /*skip over the space*/
+            args[a] = (char*)malloc(MAX_LINE * sizeof(char)); /*make new string*/
+            /*clean garbage*/
             for(int d = 0; d < MAX_LINE; ++d){
                 args[a][d] = '\0';
             }
         }
+        /*copy characters, but skip non-printing ones*/
+        /*At one point, line-endings were creeping in, and this should prevent that.*/
         if(input[c] >= '!' && input[c] <= '~'){
             args[a][i] = input[c];
         }
     }
+    /*We can return the number of arguments, for those interested.*/
     return a + 1;
 }
 
+/*Returns the name of an item of type enum redir_t
+ as a string.
+ @parame enumc redir_t r is the enum redir_t to analyze
+ @returns char* string with the name */
 char* redirName(enum redir_t r){
-    
     switch(r){
-        case NONE: return "NONE";
-        case TO_FILE: return "TO_FILE";
+        case NONE:      return "NONE";
+        case TO_FILE:   return "TO_FILE";
         case FROM_FILE: return "FROM_FILE";
-        case PIPE: return "PIPE";
-        default: return "UNKNOWN";
+        case PIPE:      return "PIPE";
+        default:        return "UNKNOWN";
     }
 }
