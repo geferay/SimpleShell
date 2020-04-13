@@ -7,9 +7,12 @@
 
 #define MAX_LINE 80 /* The maximum length command */
 #define DIAG_OUTPUT 0
+
 const int argsMAX = MAX_LINE/2 + 1;
 
+enum redir_t {NONE, TO_FILE, FROM_FILE, PIPE};
 int tokenizeCommand(char* input, char* args[]);
+char* redirName(enum redir_t r);
 
 int main(void)
 {
@@ -87,14 +90,14 @@ int main(void)
             int l = 0; /*l tracks location in input scan*/
             while(input[l] != '\0' && should_run == 1 && l < MAX_LINE){
                 if(DIAG_OUTPUT){
-                printf("=====================DIAGNOSTICS=====================\n");
-                assert(input[l] != '\0');
-                printf("input[%d] is: %c\n", l, input[l]); fflush(stdout);
-                assert(should_run == 1);
-                printf("should_run is: %d\n", should_run); fflush(stdout);
-                assert(l < MAX_LINE);
-                printf("l is: %d\n", l); fflush(stdout);
-                printf("===================END DIAGNOSTICS===================\n");
+                    printf("=====================DIAGNOSTICS=====================\n");
+                    assert(input[l] != '\0');
+                    printf("input[%d] is: %c\n", l, input[l]); fflush(stdout);
+                    assert(should_run == 1);
+                    printf("should_run is: %d\n", should_run); fflush(stdout);
+                    assert(l < MAX_LINE);
+                    printf("l is: %d\n", l); fflush(stdout);
+                    printf("===================END DIAGNOSTICS===================\n");
                 }
                 
                 int waitForChild = 1; /*rmember if we shall wait for child*/
@@ -179,18 +182,107 @@ int main(void)
                 if(DIAG_OUTPUT) fflush(stdout); /*exit(0);*/
                 
                 if(haveCommand == 1){
+                    /*check for redirection*/
+                    enum redir_t redirectionType;
+                    if(args[1] != NULL){
+                        switch(args[1][0]){
+                            case '>': redirectionType = TO_FILE; break;
+                            case '<': redirectionType = FROM_FILE; break;
+                            case '|': redirectionType = PIPE; break;
+                            default: redirectionType = NONE; break;
+                        }
+                    }
+                    else{
+                        redirectionType = NONE;
+                    }
+                    if(DIAG_OUTPUT) printf("<<<<<<<<<<<<<<<<<<<<<<<<WE ARE HERE>>>>>>>>>>>>>>>>>>>>>>>>>>\n");
+                    if(DIAG_OUTPUT) fflush(stdout); /*exit(0);*/
+                    if(DIAG_OUTPUT) printf("redirection type is: %s\n", redirName(redirectionType));
+                    if(DIAG_OUTPUT) fflush(stdout);
+                    
                     //The user would like to run a command.
                     pid_t pid = fork();
                     assert(pid >= 0);  /*This would be bad, to fail.*/
                     if(DIAG_OUTPUT) {printf("We are here!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!%s\n", (pid == 0)? "CHILD":"PARENT"); fflush(stdout);}
+//                    int fileFD = -1;
                     if(pid == 0){
                         //pid == 0 means we're running as the child.
                         if(DIAG_OUTPUT) {printf("######################RUNNING COMMAND######################\n");
-                        printf("######################%s\n", command);
-                    fflush(stdout);}
-                        execvp(args[0], args);
-                        printf("Should never reach here! \n");
-                        exit(-1); /*we do sometimes get here, so exit with error*/
+                            printf("######################%s\n", command);
+                            fflush(stdout);}
+                        switch (redirectionType) {
+                            case TO_FILE:{
+                                if(DIAG_OUTPUT) {printf("##########################TO FILE##########################\n");
+                                    fflush(stdout);}
+                                {
+                                    FILE *fp;
+                                    fp = fopen(args[2], "w+");
+                                    int fileFD = fileno(fp); /*get the file descriptor*/
+                                    dup2(fileFD, 1); /*redirect stdout to file*/
+                                    char* newArgs[2];
+                                    newArgs[0] = args[0];
+                                    newArgs[1] = NULL;
+                                    pid_t grandChild = fork();
+                                    if(grandChild == 0){
+                                        /*Do file stuff*/
+                                        /*build new args*/
+                                        execvp(newArgs[0], newArgs);
+                                    }
+                                    else{
+                                        /*This parent (child of original parent) always waits for its children.*/
+                                        wait(NULL);
+                                        /*CLOSE FILE*/
+                                        fclose(fp);
+                                    }
+                                }
+                            }
+                                break;
+                            case FROM_FILE:{
+                                if(DIAG_OUTPUT) {printf("#########################FROM FILE#########################\n");
+                                    fflush(stdout);}
+                                {
+                                    FILE *fp;
+                                    fp = fopen(args[2], "r");
+                                    int fileFD = fileno(fp); /*get the file descriptor*/
+                                    dup2(fileFD, 0); /*redirect stdout to file*/
+                                    char* newArgs[2];
+                                    newArgs[0] = args[0];
+                                    newArgs[1] = NULL;
+                                    pid_t grandChild = fork();
+                                    if(grandChild == 0){
+                                        /*Do file stuff*/
+                                        /*build new args*/
+                                        execvp(newArgs[0], newArgs);
+                                    }
+                                    else{
+                                        /*This parent (child of original parent) always waits for its children.*/
+                                        wait(NULL);
+                                        /*CLOSE FILE*/
+                                        fclose(fp);
+                                    }
+                                }
+                            }
+                                break;
+                            case PIPE:{
+                                if(DIAG_OUTPUT) {printf("############################PIPE###########################\n");
+                                    fflush(stdout);}
+                                {
+                                    
+                                }
+                            }
+                                break;
+                                
+                            default:{
+                                if(DIAG_OUTPUT) {printf("############################NONE###########################\n");
+                                    fflush(stdout);}
+                                execvp(args[0], args);
+                                printf("Should never reach here! \n");
+                                printf("Your command was likely invalid or not found.\n");
+                                fflush(stdout);
+                            }
+                                break;
+                        }
+                        exit(0); /*we need to close the child process*/
                     }
                     else{
                         //pid > 0 means we're running as the parent.
@@ -252,4 +344,15 @@ int tokenizeCommand(char* input, char* args[]){
         }
     }
     return a + 1;
+}
+
+char* redirName(enum redir_t r){
+    
+    switch(r){
+        case NONE: return "NONE";
+        case TO_FILE: return "TO_FILE";
+        case FROM_FILE: return "FROM_FILE";
+        case PIPE: return "PIPE";
+        default: return "UNKNOWN";
+    }
 }
