@@ -267,7 +267,28 @@ int main(void)
                                 if(DIAG_OUTPUT) {printf("############################PIPE###########################\n");
                                     fflush(stdout);}
                                 {
+                                    int fd[2];
+                                    pipe(fd);
+                                    pid_t grandChild = fork();
                                     
+                                    if(grandChild == 0){
+                                        close(fd[1]); /*aim't going to write*/
+                                        dup2(fd[0], 0); /*fd[0] <= sysin?*/
+                                        char* newArgs[2];
+                                        newArgs[0] = args[2];
+                                        newArgs[1] = NULL;
+                                        execvp(newArgs[0], newArgs);
+                                        exit(0);
+                                    }
+                                    else{
+                                        close(fd[0]); /*aim't going to read*/
+                                        dup2(fd[1], 1); /*sysout => fd[1]*/
+                                        char* newArgs[2];
+                                        newArgs[0] = args[0];
+                                        newArgs[1] = NULL;
+                                        execvp(newArgs[0], newArgs);
+                                        exit(0);
+                                    }
                                 }
                             }
                                 break;
